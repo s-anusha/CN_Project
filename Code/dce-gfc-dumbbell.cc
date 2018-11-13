@@ -24,6 +24,7 @@
 #include <fstream>
 #include "ns3/core-module.h"
 #include "ns3/network-module.h"
+#include "ns3/packet-sink-helper.h"
 #include "ns3/internet-module.h"
 #include "ns3/point-to-point-module.h"
 #include "ns3/point-to-point-layout-module.h"
@@ -36,11 +37,18 @@
 #include "ns3/flow-monitor-module.h"
 #include "ns3/callback.h"
 #include "ns3/dce-module.h"
+#include "ns3/netanim-module.h"
+#include "ns3/constant-position-mobility-model.h"
+#include "ccnx/misc-tools.h"
+#include "ns3/netanim-module.h"
+#include "ns3/ipv4-global-routing-helper.h"
+
+
 
 using namespace ns3;
 Ptr<UniformRandomVariable> uv = CreateObject<UniformRandomVariable> ();
 std::string dir = "results/gfc-dumbbell/";
-double stopTime = 20;
+double stopTime = 60;
 
 void
 CheckQueueSize (Ptr<QueueDisc> queue)
@@ -56,6 +64,46 @@ CheckQueueSize (Ptr<QueueDisc> queue)
 }
 
 static void
+CwndChangeA (uint32_t oldCwnd, uint32_t newCwnd)
+{
+  std::ofstream fPlotQueue (dir + "cwndTraces/A-ns3.plotme", std::ios::out | std::ios::app);
+  fPlotQueue << Simulator::Now ().GetSeconds () << " " << newCwnd/1446.0 << std::endl;
+  fPlotQueue.close ();
+}
+
+static void
+CwndChangeB (uint32_t oldCwnd, uint32_t newCwnd)
+{
+  std::ofstream fPlotQueue (dir + "cwndTraces/B-ns3.plotme", std::ios::out | std::ios::app);
+  fPlotQueue << Simulator::Now ().GetSeconds () << " " << newCwnd/1446.0 << std::endl;
+  fPlotQueue.close ();
+}
+
+static void
+CwndChangeC (uint32_t oldCwnd, uint32_t newCwnd)
+{
+  std::ofstream fPlotQueue (dir + "cwndTraces/C-ns3.plotme", std::ios::out | std::ios::app);
+  fPlotQueue << Simulator::Now ().GetSeconds () << " " << newCwnd/1446.0 << std::endl;
+  fPlotQueue.close ();
+}
+
+static void
+CwndChangeD (uint32_t oldCwnd, uint32_t newCwnd)
+{
+  std::ofstream fPlotQueue (dir + "cwndTraces/D-ns3.plotme", std::ios::out | std::ios::app);
+  fPlotQueue << Simulator::Now ().GetSeconds () << " " << newCwnd/1446.0 << std::endl;
+  fPlotQueue.close ();
+}
+
+static void
+CwndChangeE (uint32_t oldCwnd, uint32_t newCwnd)
+{
+  std::ofstream fPlotQueue (dir + "cwndTraces/E-ns3.plotme", std::ios::out | std::ios::app);
+  fPlotQueue << Simulator::Now ().GetSeconds () << " " << newCwnd/1446.0 << std::endl;
+  fPlotQueue.close ();
+}
+
+static void
 DropAtQueue (Ptr<OutputStreamWrapper> stream, Ptr<const QueueDiscItem> item)
 {
   *stream->GetStream () << Simulator::Now ().GetSeconds () << " 1" << std::endl;
@@ -66,6 +114,29 @@ MarkAtQueue (Ptr<OutputStreamWrapper> stream, Ptr<const QueueDiscItem> item, con
 {
   *stream->GetStream () << Simulator::Now ().GetSeconds () << " 1" << std::endl;
 }
+
+void
+TraceCwnd (uint32_t node, uint32_t cwndWindow,
+           Callback <void, uint32_t, uint32_t> CwndTrace)
+{
+  Config::ConnectWithoutContext ("/NodeList/" + std::to_string (node) + "/$ns3::TcpL4Protocol/SocketList/" + std::to_string (cwndWindow) + "/CongestionWindow", CwndTrace);
+}
+
+void ns3InstallBulkSend (Ptr<Node> node, Ipv4Address address, uint16_t port, 
+                      uint32_t nodeId, uint32_t cwndWindow,
+                      Callback <void, uint32_t, uint32_t> CwndTrace)
+{
+  BulkSendHelper source ("ns3::TcpSocketFactory", 
+                         InetSocketAddress (address, port));
+
+  source.SetAttribute ("MaxBytes", UintegerValue (0));
+  ApplicationContainer sourceApps = source.Install (node);
+  Time timeToStart = Seconds (uv->GetValue (10, 11));
+  sourceApps.Start (timeToStart);
+  Simulator::Schedule (timeToStart + Seconds (0.001), &TraceCwnd, nodeId, cwndWindow, CwndTrace);
+  sourceApps.Stop (Seconds (stopTime));
+}
+
 
 void InstallBulkSend (Ptr<Node> node, Ipv4Address address, uint16_t port, std::string sock_factory)
 {
@@ -106,10 +177,11 @@ int main (int argc, char *argv[])
   uint32_t stream = 1;
   std::string stack = "linux";
   std::string sock_factory = "ns3::TcpSocketFactory";
-  std::string transport_prot = "TcpIllinois";   // Changed to appropriate TCP. In this case, TCP Illionis.
-  std::string linux_prot = "illinois";          // Changed to appropriate TCP. In this case, TCP Illionis.
+  std::string transport_prot = "TcpIllinois";
+  std::string linux_prot = "illinois";
   std::string queue_disc_type = "FifoQueueDisc";
   bool useEcn = true;
+  bool isSack = false;
   uint32_t dataSize = 1446;
   uint32_t delAckCount = 2;
 
@@ -155,6 +227,7 @@ int main (int argc, char *argv[])
 
   if (stack == "ns3")
     {
+     // Config::SetDefault ("ns3::TcpL4Protocol::RecoveryType", TypeIdValue (TypeId::LookupByName ("ns3::TcpPrrRecovery")));
       if (transport_prot.compare ("ns3::TcpWestwoodPlus") == 0)
         {
           // TcpWestwoodPlus is not an actual TypeId name; we need TcpWestwood here
@@ -211,7 +284,7 @@ int main (int argc, char *argv[])
   leftToRouter.push_back (pointToPointLeaf.Install (leftNodes.Get (4), routers.Get (0)));
   routerToRight.push_back (pointToPointLeaf.Install (routers.Get (1), rightNodes.Get (4)));
 
-  DceManagerHelper dceManager;
+  DceManagerHelper dceManager;  
   LinuxStackHelper linuxStack;
   InternetStackHelper internetStack;
 
@@ -219,7 +292,10 @@ int main (int argc, char *argv[])
     {
       sock_factory = "ns3::LinuxTcpSocketFactory";
       dceManager.SetTaskManagerAttribute ("FiberManagerType", StringValue ("UcontextFiberManager"));
-      dceManager.SetNetworkStack ("ns3::LinuxSocketFdFactory", "Library", StringValue ("liblinux.so"));
+      dceManager.SetNetworkStack ("ns3::LinuxSocketFdFactory", "Lib", StringValue ("liblinux.so"));
+     /* dceManager.Install (leftNodes);
+      dceManager.Install (rightNodes);
+      dceManager.Install (routers); */
       linuxStack.Install (leftNodes);
       linuxStack.Install (rightNodes);
       internetStack.Install (routers);
@@ -257,17 +333,24 @@ int main (int argc, char *argv[])
   ipAddresses.NewNetwork ();
   routerToRightIPAddress.push_back (ipAddresses.Assign (routerToRight [4]));
 
+  dceManager.Install (leftNodes);
+  dceManager.Install (rightNodes);
+  dceManager.Install (routers);
+      
   if (stack == "linux")
     {
-      dceManager.Install (leftNodes);
-      dceManager.Install (rightNodes);
-      dceManager.Install (routers);
       linuxStack.SysctlSet (leftNodes, ".net.ipv4.conf.default.forwarding", "1");
       linuxStack.SysctlSet (rightNodes, ".net.ipv4.conf.default.forwarding", "1");
       linuxStack.SysctlSet (leftNodes, ".net.ipv4.tcp_congestion_control", linux_prot);
       linuxStack.SysctlSet (rightNodes, ".net.ipv4.tcp_congestion_control", linux_prot);
-      linuxStack.SysctlSet (leftNodes, ".net.ipv4.tcp_ecn", "1");
-      linuxStack.SysctlSet (rightNodes, ".net.ipv4.tcp_ecn", "1");
+      linuxStack.SysctlSet (leftNodes, ".net.ipv4.tcp_fack", "0");
+      linuxStack.SysctlSet (rightNodes, ".net.ipv4.tcp_dsack", "0");
+      linuxStack.SysctlSet (leftNodes, ".net.ipv4.tcp_dsack", "0");
+      linuxStack.SysctlSet (rightNodes, ".net.ipv4.tcp_fack", "0");      
+      linuxStack.SysctlSet (leftNodes, ".net.ipv4.tcp_sack", "0");
+      linuxStack.SysctlSet (rightNodes, ".net.ipv4.tcp_sack", "0");
+      //linuxStack.SysctlSet (leftNodes, ".net.ipv4.tcp_ecn", "1");
+      //linuxStack.SysctlSet (rightNodes, ".net.ipv4.tcp_ecn", "1");
     }
 
   if (stack == "linux")
@@ -326,7 +409,11 @@ int main (int argc, char *argv[])
   system ((dirToSave + "/pcap/").c_str ());
   system ((dirToSave + "/markTraces/").c_str ());
   system ((dirToSave + "/queueTraces/").c_str ());
-  system (("cp -R PlotScripts-gfc-dumbbell/* " + dir + "/pcap/").c_str ());
+  if (stack == "ns3")
+    {
+      system ((dirToSave + "/cwndTraces/").c_str ());
+    }
+  //system (("cp -R PlotScripts-gfc-dumbbell/* " + dir + "/pcap/").c_str ());
 
   if (stack == "ns3")
     {
@@ -335,13 +422,11 @@ int main (int argc, char *argv[])
       Config::SetDefault ("ns3::TcpSocket::InitialCwnd", UintegerValue (10));
       Config::SetDefault ("ns3::TcpSocket::DelAckCount", UintegerValue (delAckCount));
       Config::SetDefault ("ns3::TcpSocket::SegmentSize", UintegerValue (dataSize));
-      Config::SetDefault ("ns3::TcpSocketBase::UseEcn", BooleanValue (useEcn));
+      Config::SetDefault ("ns3::TcpSocketBase::Sack", BooleanValue (isSack));
+      //Config::SetDefault ("ns3::TcpSocketBase::EcnMode", StringValue ("ClassicEcn"));
     }
 
-  //Config::SetDefault ("ns3::FifoQueueDisc::UseEcn", BooleanValue (useEcn));
-  //Config::SetDefault ("ns3::FifoQueueDisc::MeanPktSize", UintegerValue (1500));
-  //Config::SetDefault ("ns3::FifoQueueDisc::Limit", DoubleValue (7.5));
-  Config::SetDefault (queue_disc_type + "::MaxSize", QueueSizeValue (QueueSize ("666p")));
+  Config::SetDefault (queue_disc_type + "::MaxSize", QueueSizeValue (QueueSize ("100p")));
 
   AsciiTraceHelper asciiTraceHelper;
   Ptr<OutputStreamWrapper> streamWrapper;
@@ -364,12 +449,25 @@ int main (int argc, char *argv[])
   InstallPacketSink (rightNodes.Get (3), port, sock_factory);      // D Sink 0 Applications
   InstallPacketSink (rightNodes.Get (4), port, sock_factory);      // E Sink 0 Applications
 
-  InstallBulkSend (leftNodes.Get (0), routerToRightIPAddress [0].GetAddress (1), port, sock_factory);
-  InstallBulkSend (leftNodes.Get (1), routerToRightIPAddress [1].GetAddress (1), port, sock_factory);
-  InstallBulkSend (leftNodes.Get (2), routerToRightIPAddress [2].GetAddress (1), port, sock_factory);
-  InstallBulkSend (leftNodes.Get (3), routerToRightIPAddress [3].GetAddress (1), port, sock_factory);
-  InstallBulkSend (leftNodes.Get (4), routerToRightIPAddress [4].GetAddress (1), port, sock_factory);
-
+  //Install BuulkSend application
+  if (stack == "linux")
+    {
+      InstallBulkSend (leftNodes.Get (0), routerToRightIPAddress [0].GetAddress (1), port, sock_factory);
+      InstallBulkSend (leftNodes.Get (1), routerToRightIPAddress [1].GetAddress (1), port, sock_factory);
+      InstallBulkSend (leftNodes.Get (2), routerToRightIPAddress [2].GetAddress (1), port, sock_factory);
+      InstallBulkSend (leftNodes.Get (3), routerToRightIPAddress [3].GetAddress (1), port, sock_factory);
+      InstallBulkSend (leftNodes.Get (4), routerToRightIPAddress [4].GetAddress (1), port, sock_factory);
+    }
+  else if (stack == "ns3")
+    {
+      ns3InstallBulkSend (leftNodes.Get (0), routerToRightIPAddress [0].GetAddress (1), port, 2, 0, MakeCallback (&CwndChangeA));
+      ns3InstallBulkSend (leftNodes.Get (1), routerToRightIPAddress [1].GetAddress (1), port, 3, 0, MakeCallback (&CwndChangeB));
+      ns3InstallBulkSend (leftNodes.Get (2), routerToRightIPAddress [2].GetAddress (1), port, 4, 0, MakeCallback (&CwndChangeC));
+      ns3InstallBulkSend (leftNodes.Get (3), routerToRightIPAddress [3].GetAddress (1), port, 5, 0, MakeCallback (&CwndChangeD));
+      ns3InstallBulkSend (leftNodes.Get (4), routerToRightIPAddress [4].GetAddress (1), port, 6, 0, MakeCallback (&CwndChangeE));
+    }
+    
+    
   if (stack == "linux")
     {
       for (int j = 0; j < leftNodes.GetN (); j++)
@@ -384,6 +482,10 @@ int main (int argc, char *argv[])
   pointToPointLeaf.EnablePcapAll (dir + "pcap/N", true);
 
   Simulator::Stop (Seconds (stopTime));
+  
+  //GtkConfigStore configstore;  
+  //configstore.ConfigureAttributes();
+  
   Simulator::Run ();
 
   std::ofstream myfile;
