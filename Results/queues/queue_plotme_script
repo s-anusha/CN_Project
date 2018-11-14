@@ -1,0 +1,8 @@
+set xrange [10:20]
+set terminal pngcairo enhanced color lw 2 size 800,600 font 'Arial-Bold'
+set output "Queue size.png"
+set xlabel "Time (sec)" font "Verdana"
+set ylabel "Cwnd (Packets)" font "Verdana"
+set key outside;
+set key right top;
+plot "queue-size.plotme" title "queue" with lines lw 1.5, "drop-O.plotme" title "drop" with lines lw 1.5
